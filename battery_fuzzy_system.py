@@ -128,7 +128,11 @@ class BatteryFuzzySystem:
         self.rule41 = ctrl.Rule(self.battery_level['medium'] & (self.temperature['cold'] | self.temperature['normal']) & self.health['average'], self.warning_status['safe'])
         self.rule42 = ctrl.Rule(self.temperature['very_hot'], self.charging_speed['stop'])
         self.rule43 = ctrl.Rule(self.battery_level['very_low'], self.discharge_limit['conservative'])
-        
+
+        # Catch-all for `low` battery so discharge_limit is always defined regardless of health/temp/load.
+        # Without this, low battery + good health + cold/normal temp + low load fires no discharge rule.
+        self.rule44 = ctrl.Rule(self.battery_level['low'], self.discharge_limit['conservative'])
+
         self.rules = [
              self.rule1, self.rule2, self.rule3, self.rule4, self.rule5,
              self.rule6, self.rule7, self.rule8, self.rule9, self.rule10,
@@ -137,7 +141,8 @@ class BatteryFuzzySystem:
              self.rule21, self.rule22, self.rule23, self.rule24, self.rule25,
              self.rule26, self.rule27, self.rule28, self.rule29, self.rule30,
              self.rule31, self.rule32, self.rule33, self.rule34, self.rule35,
-             self.rule36, self.rule37, self.rule38, self.rule39, self.rule40, self.rule41, self.rule42, self.rule43
+             self.rule36, self.rule37, self.rule38, self.rule39, self.rule40,
+             self.rule41, self.rule42, self.rule43, self.rule44
         ]
     
     def _create_control_system(self):
