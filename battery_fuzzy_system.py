@@ -5,14 +5,10 @@ from skfuzzy import control as ctrl
 
 class BatteryFuzzySystem:
 
-    # Defuzzified-output thresholds for the categorical labels returned by
-    # `get_recommendations`. Kept as class constants so the boundaries are a
-    # single source of truth (and easy to tune without diving into the
-    # interpretation methods).
-    CHARGING_SPEED_THRESHOLDS = (20, 50, 75)   # Stop  | Slow    | Normal | Fast
-    COOLING_LEVEL_THRESHOLDS = (25, 70)        # Off   | Medium  | High
-    WARNING_STATUS_THRESHOLDS = (33, 65)       # Safe  | Warning | Critical
-    DISCHARGE_LIMIT_THRESHOLDS = (33, 67)      # Cons. | Balanced| Aggressive
+    CHARGING_SPEED_THRESHOLDS = (20, 50, 75)  
+    COOLING_LEVEL_THRESHOLDS = (25, 70)       
+    WARNING_STATUS_THRESHOLDS = (33, 65)      
+    DISCHARGE_LIMIT_THRESHOLDS = (33, 67)     
 
     def __init__(self):
         self._setup_antecedents()
@@ -83,9 +79,6 @@ class BatteryFuzzySystem:
     def _setup_rules(self):
 
         # CHARGING SPEED (10)
-        # R1/R3 only fire on `normal` temperature: charging Li-ion below 0 C
-        # causes lithium plating, so cold conditions are handled by R45/R46
-        # (slow charge) instead of fast charging.
         self.rule1 = ctrl.Rule(self.battery_level['very_low'] & self.temperature['normal'], self.charging_speed['fast'])
         self.rule2 = ctrl.Rule(self.battery_level['very_low'] & (self.temperature['hot'] | self.temperature['very_hot']), self.charging_speed['slow'])
         self.rule3 = ctrl.Rule(self.battery_level['low'] & self.temperature['normal'], self.charging_speed['fast'])
@@ -115,9 +108,6 @@ class BatteryFuzzySystem:
         self.rule23 = ctrl.Rule(self.battery_level['medium'] & (self.temperature['cold'] | self.temperature['normal']) & self.health['good'], self.warning_status['safe'])
         self.rule24 = ctrl.Rule((self.battery_level['high'] | self.battery_level['full']) & self.health['good'] & (self.temperature['cold'] | self.temperature['normal']), self.warning_status['safe'])
         self.rule25 = ctrl.Rule(self.battery_level['medium'] & self.temperature['hot'] & self.health['good'], self.warning_status['warning'])
-        # R26 used to be `(high|full) -> safe` unconditionally, which contradicted
-        # R21 (very_hot|poor -> critical) when the battery was full but the cell
-        # was overheating. Excluding `very_hot` lets the safety-critical rule win.
         self.rule26 = ctrl.Rule((self.battery_level['high'] | self.battery_level['full']) & (self.temperature['cold'] | self.temperature['normal'] | self.temperature['hot']), self.warning_status['safe'])
         self.rule27 = ctrl.Rule(self.battery_level['medium'] & (self.temperature['hot'] | self.temperature['very_hot']) & self.health['poor'], self.warning_status['warning'])
         self.rule28 = ctrl.Rule(self.battery_level['very_low'] & self.health['poor'] & self.load['high'], self.warning_status['critical'])
@@ -143,13 +133,7 @@ class BatteryFuzzySystem:
         self.rule41 = ctrl.Rule(self.battery_level['medium'] & (self.temperature['cold'] | self.temperature['normal']) & self.health['average'], self.warning_status['safe'])
         self.rule42 = ctrl.Rule(self.temperature['very_hot'], self.charging_speed['stop'])
         self.rule43 = ctrl.Rule(self.battery_level['very_low'], self.discharge_limit['conservative'])
-
-        # Catch-all for `low` battery so discharge_limit is always defined regardless of health/temp/load.
-        # Without this, low battery + good health + cold/normal temp + low load fires no discharge rule.
         self.rule44 = ctrl.Rule(self.battery_level['low'], self.discharge_limit['conservative'])
-
-        # Cold-charging Li-ion safety: never fast-charge below freezing.
-        # Pairs with R1/R3 which now only cover `normal` temperatures.
         self.rule45 = ctrl.Rule(self.battery_level['very_low'] & self.temperature['cold'], self.charging_speed['slow'])
         self.rule46 = ctrl.Rule(self.battery_level['low'] & self.temperature['cold'], self.charging_speed['slow'])
 
@@ -166,9 +150,6 @@ class BatteryFuzzySystem:
              self.rule45, self.rule46,
         ]
 
-        # Single source of truth for rule descriptions, used by vis.py for the
-        # rule-activation table. Each tuple is (name, description, output_var)
-        # in the same order as `self.rules`.
         self.rule_info = [
             ('R1',  'Very Low Battery + Normal Temp -> Fast Charge',                 'charging_speed'),
             ('R2',  'Very Low Battery + Hot/Very Hot Temp -> Slow Charge',           'charging_speed'),
@@ -223,7 +204,6 @@ class BatteryFuzzySystem:
         self.simulation = ctrl.ControlSystemSimulation(self.system)
     
     def get_recommendations(self, battery_level, temperature, health, load):
-        # Validate inputs first
         try:
             battery_level = float(battery_level)
             temperature = float(temperature)
@@ -241,33 +221,26 @@ class BatteryFuzzySystem:
         if not (0 <= load <= 100):
             raise ValueError("load must be between 0-100")
         
-        # Attempt to get recommendations with fallback to simulation recreation
         max_attempts = 2
         for attempt in range(max_attempts):
             try:
-                # Set inputs
                 self.simulation.input['battery_level'] = battery_level
                 self.simulation.input['temperature'] = temperature
                 self.simulation.input['health'] = health
                 self.simulation.input['load'] = load
                 
-                # Compute
                 self.simulation.compute()
                 
-                # Get outputs
                 charging_speed = self.simulation.output['charging_speed']
                 cooling_level = self.simulation.output['cooling_level']
                 warning_status = self.simulation.output['warning_status']
                 discharge_limit = self.simulation.output['discharge_limit']
                 
-                # Success, break out of loop
                 break
             except (KeyError, ValueError, AttributeError) as e:
                 if attempt == 0:
-                    # First attempt failed, recreate simulation and try again
                     self._create_control_system()
                 else:
-                    # Second attempt failed, re-raise the exception
                     raise
         
         return {
