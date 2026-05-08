@@ -4,7 +4,16 @@ from skfuzzy import control as ctrl
 
 
 class BatteryFuzzySystem:
-       
+
+    # Defuzzified-output thresholds for the categorical labels returned by
+    # `get_recommendations`. Kept as class constants so the boundaries are a
+    # single source of truth (and easy to tune without diving into the
+    # interpretation methods).
+    CHARGING_SPEED_THRESHOLDS = (20, 50, 75)   # Stop  | Slow    | Normal | Fast
+    COOLING_LEVEL_THRESHOLDS = (25, 70)        # Off   | Medium  | High
+    WARNING_STATUS_THRESHOLDS = (33, 65)       # Safe  | Warning | Critical
+    DISCHARGE_LIMIT_THRESHOLDS = (33, 67)      # Cons. | Balanced| Aggressive
+
     def __init__(self):
         self._setup_antecedents()
         self._setup_consequents()
@@ -72,14 +81,17 @@ class BatteryFuzzySystem:
         self.discharge_limit['aggressive'] = fuzz.trimf(self.discharge_limit.universe, [67, 100, 100])
      
     def _setup_rules(self):
-        
+
         # CHARGING SPEED (10)
-        self.rule1 = ctrl.Rule(self.battery_level['very_low'] & (self.temperature['cold'] | self.temperature['normal']), self.charging_speed['fast'])
+        # R1/R3 only fire on `normal` temperature: charging Li-ion below 0 C
+        # causes lithium plating, so cold conditions are handled by R45/R46
+        # (slow charge) instead of fast charging.
+        self.rule1 = ctrl.Rule(self.battery_level['very_low'] & self.temperature['normal'], self.charging_speed['fast'])
         self.rule2 = ctrl.Rule(self.battery_level['very_low'] & (self.temperature['hot'] | self.temperature['very_hot']), self.charging_speed['slow'])
-        self.rule3 = ctrl.Rule(self.battery_level['low'] & (self.temperature['cold'] | self.temperature['normal']), self.charging_speed['fast'])
+        self.rule3 = ctrl.Rule(self.battery_level['low'] & self.temperature['normal'], self.charging_speed['fast'])
         self.rule4 = ctrl.Rule(self.battery_level['low'] & (self.temperature['hot'] | self.temperature['very_hot']), self.charging_speed['slow'])
         self.rule5 = ctrl.Rule(self.battery_level['medium'] & (self.temperature['cold'] | self.temperature['normal'] | self.temperature['hot']), self.charging_speed['normal'])
-        self.rule6 = ctrl.Rule(self.battery_level['medium'] & self.temperature['very_hot'],self.charging_speed['slow'])
+        self.rule6 = ctrl.Rule(self.battery_level['medium'] & self.temperature['very_hot'], self.charging_speed['slow'])
         self.rule7 = ctrl.Rule((self.battery_level['high'] | self.battery_level['full']) & (self.temperature['cold'] | self.temperature['normal']), self.charging_speed['slow'])
         self.rule8 = ctrl.Rule((self.battery_level['high'] | self.battery_level['full']) & (self.temperature['hot'] | self.temperature['very_hot']), self.charging_speed['stop'])
         self.rule9 = ctrl.Rule(self.health['poor'] & (self.temperature['cold'] | self.temperature['normal']), self.charging_speed['slow'])
@@ -103,7 +115,10 @@ class BatteryFuzzySystem:
         self.rule23 = ctrl.Rule(self.battery_level['medium'] & (self.temperature['cold'] | self.temperature['normal']) & self.health['good'], self.warning_status['safe'])
         self.rule24 = ctrl.Rule((self.battery_level['high'] | self.battery_level['full']) & self.health['good'] & (self.temperature['cold'] | self.temperature['normal']), self.warning_status['safe'])
         self.rule25 = ctrl.Rule(self.battery_level['medium'] & self.temperature['hot'] & self.health['good'], self.warning_status['warning'])
-        self.rule26 = ctrl.Rule((self.battery_level['high'] | self.battery_level['full']), self.warning_status['safe'])
+        # R26 used to be `(high|full) -> safe` unconditionally, which contradicted
+        # R21 (very_hot|poor -> critical) when the battery was full but the cell
+        # was overheating. Excluding `very_hot` lets the safety-critical rule win.
+        self.rule26 = ctrl.Rule((self.battery_level['high'] | self.battery_level['full']) & (self.temperature['cold'] | self.temperature['normal'] | self.temperature['hot']), self.warning_status['safe'])
         self.rule27 = ctrl.Rule(self.battery_level['medium'] & (self.temperature['hot'] | self.temperature['very_hot']) & self.health['poor'], self.warning_status['warning'])
         self.rule28 = ctrl.Rule(self.battery_level['very_low'] & self.health['poor'] & self.load['high'], self.warning_status['critical'])
         self.rule29 = ctrl.Rule(self.battery_level['very_low'] & self.health['good'], self.discharge_limit['conservative'])
@@ -133,6 +148,11 @@ class BatteryFuzzySystem:
         # Without this, low battery + good health + cold/normal temp + low load fires no discharge rule.
         self.rule44 = ctrl.Rule(self.battery_level['low'], self.discharge_limit['conservative'])
 
+        # Cold-charging Li-ion safety: never fast-charge below freezing.
+        # Pairs with R1/R3 which now only cover `normal` temperatures.
+        self.rule45 = ctrl.Rule(self.battery_level['very_low'] & self.temperature['cold'], self.charging_speed['slow'])
+        self.rule46 = ctrl.Rule(self.battery_level['low'] & self.temperature['cold'], self.charging_speed['slow'])
+
         self.rules = [
              self.rule1, self.rule2, self.rule3, self.rule4, self.rule5,
              self.rule6, self.rule7, self.rule8, self.rule9, self.rule10,
@@ -142,7 +162,60 @@ class BatteryFuzzySystem:
              self.rule26, self.rule27, self.rule28, self.rule29, self.rule30,
              self.rule31, self.rule32, self.rule33, self.rule34, self.rule35,
              self.rule36, self.rule37, self.rule38, self.rule39, self.rule40,
-             self.rule41, self.rule42, self.rule43, self.rule44
+             self.rule41, self.rule42, self.rule43, self.rule44,
+             self.rule45, self.rule46,
+        ]
+
+        # Single source of truth for rule descriptions, used by vis.py for the
+        # rule-activation table. Each tuple is (name, description, output_var)
+        # in the same order as `self.rules`.
+        self.rule_info = [
+            ('R1',  'Very Low Battery + Normal Temp -> Fast Charge',                 'charging_speed'),
+            ('R2',  'Very Low Battery + Hot/Very Hot Temp -> Slow Charge',           'charging_speed'),
+            ('R3',  'Low Battery + Normal Temp -> Fast Charge',                      'charging_speed'),
+            ('R4',  'Low Battery + Hot/Very Hot Temp -> Slow Charge',                'charging_speed'),
+            ('R5',  'Medium Battery + Cold/Normal/Hot Temp -> Normal Charge',        'charging_speed'),
+            ('R6',  'Medium Battery + Very Hot Temp -> Slow Charge',                 'charging_speed'),
+            ('R7',  'High/Full Battery + Cold/Normal Temp -> Slow Charge',           'charging_speed'),
+            ('R8',  'High/Full Battery + Hot/Very Hot Temp -> Stop Charge',          'charging_speed'),
+            ('R9',  'Poor Health + Cold/Normal Temp -> Slow Charge',                 'charging_speed'),
+            ('R10', 'Poor Health + Hot/Very Hot Temp -> Stop Charge',                'charging_speed'),
+            ('R11', 'Cold/Normal Temp + Very Low/Low/Medium Battery -> Cooling Off', 'cooling_level'),
+            ('R12', 'Cold/Normal Temp + High/Full Battery -> Cooling Off',           'cooling_level'),
+            ('R13', 'Hot Temp + Very Low/Low Battery -> Cooling High',               'cooling_level'),
+            ('R14', 'Hot Temp + Medium Battery -> Cooling Medium',                   'cooling_level'),
+            ('R15', 'Hot Temp + High/Full Battery -> Cooling Medium',                'cooling_level'),
+            ('R16', 'Very Hot Temp + Very Low/Low Battery -> Cooling High',          'cooling_level'),
+            ('R17', 'Very Hot Temp + Medium/High/Full Battery -> Cooling High',      'cooling_level'),
+            ('R18', 'Poor Health + Hot/Very Hot Temp -> Cooling High',               'cooling_level'),
+            ('R19', 'Very Low/Low Battery + Cold/Normal Temp -> Warning',            'warning_status'),
+            ('R20', 'Very Low/Low Battery + Hot/Very Hot Temp -> Critical',          'warning_status'),
+            ('R21', 'Very Hot Temp OR Poor Health -> Critical',                      'warning_status'),
+            ('R22', 'Medium Battery + Hot Temp + Average Health -> Warning',         'warning_status'),
+            ('R23', 'Medium Battery + Cold/Normal Temp + Good Health -> Safe',       'warning_status'),
+            ('R24', 'High/Full Battery + Good Health + Cold/Normal Temp -> Safe',    'warning_status'),
+            ('R25', 'Medium Battery + Hot Temp + Good Health -> Warning',            'warning_status'),
+            ('R26', 'High/Full Battery + Cold/Normal/Hot Temp -> Safe',              'warning_status'),
+            ('R27', 'Medium Battery + Hot/Very Hot Temp + Poor Health -> Warning',   'warning_status'),
+            ('R28', 'Very Low Battery + Poor Health + High Load -> Critical',        'warning_status'),
+            ('R29', 'Very Low Battery + Good Health -> Conservative',                'discharge_limit'),
+            ('R30', 'Low Battery + Poor/Average Health -> Conservative',             'discharge_limit'),
+            ('R31', 'Medium Battery + Low Load -> Aggressive',                       'discharge_limit'),
+            ('R32', 'Medium Battery + Medium/High Load -> Balanced',                 'discharge_limit'),
+            ('R33', 'High Battery + Low Load -> Balanced',                           'discharge_limit'),
+            ('R34', 'High Battery + Medium/High Load -> Aggressive',                 'discharge_limit'),
+            ('R35', 'Full Battery + Low Load -> Aggressive',                         'discharge_limit'),
+            ('R36', 'Full Battery + Medium/High Load -> Balanced',                   'discharge_limit'),
+            ('R37', 'Poor Health + Medium/High Load -> Conservative',                'discharge_limit'),
+            ('R38', '(Poor Health OR Very Hot) + Low Battery -> Conservative',       'discharge_limit'),
+            ('R39', 'Very Hot Temp + Very Low Battery -> Conservative',              'discharge_limit'),
+            ('R40', 'Medium Battery + Poor Health -> Slow Charge',                   'charging_speed'),
+            ('R41', 'Medium Battery + Cold/Normal Temp + Average Health -> Safe',    'warning_status'),
+            ('R42', 'Very Hot Temp -> Stop Charge',                                  'charging_speed'),
+            ('R43', 'Very Low Battery -> Conservative (catch-all)',                  'discharge_limit'),
+            ('R44', 'Low Battery -> Conservative (catch-all)',                       'discharge_limit'),
+            ('R45', 'Very Low Battery + Cold Temp -> Slow Charge (Li-ion safety)',   'charging_speed'),
+            ('R46', 'Low Battery + Cold Temp -> Slow Charge (Li-ion safety)',        'charging_speed'),
         ]
     
     def _create_control_system(self):
@@ -213,35 +286,35 @@ class BatteryFuzzySystem:
         }
     
     def _interpret_charging_speed(self, value):
-        if value < 20:
-           return "Stop"
-        elif value < 50:
-           return "Slow"
-        elif value < 75:
-           return "Normal"
-        else:
-           return "Fast"
-    
+        stop, slow, normal = self.CHARGING_SPEED_THRESHOLDS
+        if value < stop:
+            return "Stop"
+        if value < slow:
+            return "Slow"
+        if value < normal:
+            return "Normal"
+        return "Fast"
+
     def _interpret_cooling_level(self, value):
-        if value < 25:
-           return "Off"
-        elif value < 70:
-           return "Medium"
-        else:
-           return "High"
-    
+        off, medium = self.COOLING_LEVEL_THRESHOLDS
+        if value < off:
+            return "Off"
+        if value < medium:
+            return "Medium"
+        return "High"
+
     def _interpret_warning_status(self, value):
-        if value < 33:
-           return "Safe"
-        elif value < 65:
-           return "Warning"
-        else:
-           return "Critical"
-    
+        safe, warning = self.WARNING_STATUS_THRESHOLDS
+        if value < safe:
+            return "Safe"
+        if value < warning:
+            return "Warning"
+        return "Critical"
+
     def _interpret_discharge_limit(self, value):
-        if value < 33:
-           return "Conservative"
-        elif value < 67:
-           return "Balanced"
-        else:
-           return "Aggressive"
+        conservative, balanced = self.DISCHARGE_LIMIT_THRESHOLDS
+        if value < conservative:
+            return "Conservative"
+        if value < balanced:
+            return "Balanced"
+        return "Aggressive"
