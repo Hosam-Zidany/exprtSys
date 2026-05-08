@@ -2,13 +2,13 @@
 Comprehensive Visualization Suite for Battery Fuzzy Logic System
 ================================================================
 
-This module provides 9 visualization functions to analyze and understand
+This module provides 8 visualization functions to analyze and understand
 the fuzzy logic battery management system in detail.
 
 Usage:
     from vis import *
     system = BatteryFuzzySystem()
-    
+
     # Generate all visualizations
     visualize_membership_functions(system)
     visualize_fuzzification(system)
@@ -17,7 +17,6 @@ Usage:
     visualize_cooling_intersection(system)
     visualize_warning_intersection(system)
     visualize_discharge_intersection(system)
-    visualize_control_surfaces(system)
     visualize_output_distributions(system)
 """
 
@@ -349,230 +348,103 @@ def visualize_fuzzification(system):
 
 def visualize_rule_activation(system):
     """
-    Show which rules fire for a specific scenario and their activation strength.
-    
-    Scenario: Battery=25%, Temperature=60°C, Health=40%
-    
-    Displays a table showing:
-    - Rule number
-    - Conditions
-    - Output action
-    - Activation strength (color-coded)
+    Show every rule and its real fuzzy firing strength for a specific scenario.
+
+    Scenario: Battery=25%, Temperature=60 C, Health=40%, Load=50%
+
+    Rule descriptions come from `system.rule_info` (single source of truth in
+    `battery_fuzzy_system.py`). Firing strength is read from
+    `rule.antecedent.membership_value[simulation]` after `compute()`, so the
+    table reflects the actual fuzzy activation rather than a crisp threshold
+    approximation.
     """
     battery = 25.0
     temperature = 60.0
     health = 40.0
     load = 50.0
-    
-    # Get system output
-    result = system.get_recommendations(battery, temperature, health, load)
-    
-    # Create figure
-    fig, ax = plt.subplots(figsize=(14, 10))
-    fig.suptitle(f'Rule Activation for Scenario:\nBattery={battery}%, Temperature={temperature}°C, Health={health}',
-                 fontsize=13, fontweight='bold')
-    
-    # Prepare rule data (43 total rules)
-    rules_data = [
-        # CHARGING SPEED (10 rules)
-        ("R1", "Very Low & Cold/Normal", "Fast Charge", "charging_speed"),
-        ("R2", "Very Low & Hot/Very Hot", "Slow Charge", "charging_speed"),
-        ("R3", "Low & Cold/Normal", "Fast Charge", "charging_speed"),
-        ("R4", "Low & Hot/Very Hot", "Slow Charge", "charging_speed"),
-        ("R5", "Medium & Cold/Normal/Hot", "Normal Charge", "charging_speed"),
-        ("R6", "Medium & Very Hot", "Slow Charge", "charging_speed"),
-        ("R7", "High/Full & Cold/Normal", "Slow Charge", "charging_speed"),
-        ("R8", "High/Full & Hot/Very Hot", "Stop Charge", "charging_speed"),
-        ("R9", "Poor Health & Cold/Normal", "Slow Charge", "charging_speed"),
-        ("R10", "Poor Health & Hot/Very Hot", "Stop Charge", "charging_speed"),
-        # COOLING LEVEL (8 rules)
-        ("R11", "Cold/Normal & Low-Med", "Cooling Off", "cooling_level"),
-        ("R12", "Cold/Normal & High/Full", "Cooling Off", "cooling_level"),
-        ("R13", "Hot & Low Battery", "High Cooling", "cooling_level"),
-        ("R14", "Hot & Medium Battery", "Med Cooling", "cooling_level"),
-        ("R15", "Hot & High/Full Battery", "Med Cooling", "cooling_level"),
-        ("R16", "Very Hot & Low Battery", "High Cooling", "cooling_level"),
-        ("R17", "Very Hot & Med/High/Full", "High Cooling", "cooling_level"),
-        ("R18", "Poor Health & Hot/Very Hot", "High Cooling", "cooling_level"),
-        # WARNING STATUS (9 rules - R28 added)
-        ("R19", "Low & Cold/Normal", "Warning", "warning_status"),
-        ("R20", "Low & Hot/Very Hot", "Critical", "warning_status"),
-        ("R21", "Very Hot OR Poor Health", "Critical", "warning_status"),
-        ("R22", "Medium & Hot & Avg Health", "Warning", "warning_status"),
-        ("R23", "Medium & Cold/Normal & Good", "Safe", "warning_status"),
-        ("R24", "High/Full & Good & Cold/Normal", "Safe", "warning_status"),
-        ("R25", "Medium & Hot & Good Health", "Warning", "warning_status"),
-        ("R26", "High/Full & Cold/Normal/Hot", "Safe", "warning_status"),
-        ("R28", "Very Low & Poor Health & High Load", "Critical", "warning_status"),
-        # DISCHARGE LIMIT (12 rules)
-        ("R29", "Low Battery & Low Load", "Aggressive", "discharge_limit"),
-        ("R30", "Low Battery & Med Load", "Balanced", "discharge_limit"),
-        ("R31", "Low Battery & High Load", "Balanced", "discharge_limit"),
-        ("R32", "Medium & Low Load", "Balanced", "discharge_limit"),
-        ("R33", "Medium & Med Load", "Balanced", "discharge_limit"),
-        ("R34", "Medium & High Load", "Conservative", "discharge_limit"),
-        ("R35", "High Battery & Low Load", "Balanced", "discharge_limit"),
-        ("R36", "High Battery & Med Load", "Conservative", "discharge_limit"),
-        ("R37", "High Battery & High Load", "Conservative", "discharge_limit"),
-        ("R38", "Poor Health OR Very Hot", "Conservative", "discharge_limit"),
-        ("R39", "Good Health & Low Battery", "Aggressive", "discharge_limit"),
-        # SAFETY OVERRIDES (3 rules)
-        ("R40", "Very Hot Temp Override", "Stop Charge", "charging_speed"),
-        ("R41", "Critical Battery Level", "Stop Charge", "charging_speed"),
-        ("R42", "Very Low Battery Fallback", "Conservative", "discharge_limit"),
-    ]
-    
-    # Simplified rule matching (basic demonstration)
-    active_rules = []
-    
-    # Check which rules would be active based on crisp logic approximation
-    # CHARGING SPEED RULES (0-9)
-    if battery < 40:
-        if temperature < 50:
-            active_rules.extend([0, 2])  # R1, R3
-        else:
-            active_rules.extend([1, 3])  # R2, R4
-    elif battery < 70:
-        if temperature < 75:
-            active_rules.append(4)  # R5
-        else:
-            active_rules.append(5)  # R6
-    else:
-        if temperature < 75:
-            active_rules.append(6)  # R7
-        else:
-            active_rules.append(7)  # R8
-    
-    if health < 35:
-        if temperature < 75:
-            active_rules.append(8)  # R9
-        else:
-            active_rules.append(9)  # R10
-    
-    # COOLING RULES (10-17)
-    if temperature < 50:
-        if battery < 70:
-            active_rules.append(10)  # R11
-        else:
-            active_rules.append(11)  # R12
-    elif temperature < 75:
-        if battery < 40:
-            active_rules.append(12)  # R13
-        elif battery < 70:
-            active_rules.append(13)  # R14
-        else:
-            active_rules.append(14)  # R15
-    else:  # Very hot
-        if battery < 40:
-            active_rules.append(15)  # R16
-        else:
-            active_rules.append(16)  # R17
-    
-    if health < 35 and temperature >= 75:
-        active_rules.append(17)  # R18
-    
-    # WARNING RULES (18-26)
-    if battery < 40:
-        if temperature < 50:
-            active_rules.append(18)  # R19
-        else:
-            active_rules.append(19)  # R20
-    
-    if temperature >= 75 or health < 35:
-        active_rules.append(20)  # R21
-    
-    if battery >= 30 and battery < 70 and temperature >= 40 and temperature < 75 and health >= 25 and health < 67:
-        active_rules.append(21)  # R22
-    
-    if battery >= 30 and battery < 70 and temperature < 50 and health >= 67:
-        active_rules.append(22)  # R23
-    
-    if battery >= 60 and health >= 67 and temperature < 50:
-        active_rules.append(23)  # R24
-    
-    if battery >= 30 and battery < 70 and temperature >= 40 and temperature < 75 and health >= 67:
-        active_rules.append(24)  # R25
-    
-    if battery >= 60 and temperature < 75 and temperature >= -20:
-        active_rules.append(25)  # R26
-    
-    # NEW RULE 28: Very Low & Poor Health & High Load -> Critical
-    if battery < 20 and health < 35 and load >= 60:
-        active_rules.append(26)  # R28
-    
-    # DISCHARGE LIMIT RULES (27-39)
-    # Based on battery level and load
-    if battery < 40:  # Low battery
-        if load < 40:
-            active_rules.append(27)  # R29
-        elif load < 67:
-            active_rules.append(28)  # R30
-        else:
-            active_rules.append(29)  # R31
-    elif battery < 70:  # Medium battery
-        if load < 40:
-            active_rules.append(30)  # R32
-        elif load < 67:
-            active_rules.append(31)  # R33
-        else:
-            active_rules.append(32)  # R34
-    else:  # High battery
-        if load < 40:
-            active_rules.append(33)  # R35
-        elif load < 67:
-            active_rules.append(34)  # R36
-        else:
-            active_rules.append(35)  # R37
-    
-    # Safety overrides
-    if health < 35 or temperature >= 75:
-        active_rules.append(36)  # R38
-    
-    if health >= 67 and battery >= 60 and load < 40:
-        active_rules.append(37)  # R39
-    
-    active_rules = list(set(active_rules))
-    
-    # Create table
+
+    # Run the simulation so each rule's antecedent membership is populated.
+    system.get_recommendations(battery, temperature, health, load)
+
+    rows = []
+    for rule, info in zip(system.rules, system.rule_info):
+        name, description, output_var = info
+        try:
+            strength = float(rule.antecedent.membership_value[system.simulation])
+        except Exception:
+            strength = 0.0
+        rows.append((name, description, output_var, strength))
+
+    n_rules = len(rows)
+    n_active = sum(1 for *_, s in rows if s > 0.01)
+
+    # Two-column layout so the figure stays readable as the rule base grows.
+    half = (n_rules + 1) // 2
+    columns = [rows[:half], rows[half:]]
+
+    fig, ax = plt.subplots(figsize=(18, 12))
+    fig.suptitle(
+        f'Rule Activation for Scenario: '
+        f'Battery={battery}%, Temperature={temperature}°C, '
+        f'Health={health}%, Load={load}%',
+        fontsize=13, fontweight='bold')
     ax.axis('off')
-    
-    # Table header
-    header = ['Rule', 'Conditions', 'Output', 'Status']
-    cell_height = 0.035
-    y_start = 0.95
-    
-    # Draw header
-    for col, text in enumerate(header):
-        ax.text(0.02 + col * 0.24, y_start, text, fontsize=10, fontweight='bold',
-               bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.7))
-    
-    # Draw rows
-    y_pos = y_start - cell_height
-    for idx, (rule_num, conditions, output, output_type) in enumerate(rules_data):
-        is_active = idx in active_rules
-        bg_color = '#90EE90' if is_active else '#E0E0E0'  # Light green or gray
-        status_text = '✓ ACTIVE' if is_active else '○ Inactive'
-        
-        # Rule number
-        ax.text(0.02, y_pos, rule_num, fontsize=9,
-               bbox=dict(boxstyle='round', facecolor=bg_color, alpha=0.5))
-        # Conditions
-        ax.text(0.10, y_pos, conditions, fontsize=8,
-               bbox=dict(boxstyle='round', facecolor=bg_color, alpha=0.5))
-        # Output
-        ax.text(0.50, y_pos, output, fontsize=9,
-               bbox=dict(boxstyle='round', facecolor=bg_color, alpha=0.5))
-        # Status
-        ax.text(0.74, y_pos, status_text, fontsize=9, fontweight='bold' if is_active else 'normal',
-               bbox=dict(boxstyle='round', facecolor=bg_color, alpha=0.5))
-        
-        y_pos -= cell_height
-    
-    # Add legend
-    ax.text(0.02, 0.02, f'Total Active Rules: {len(active_rules)} / 43',
-           fontsize=11, fontweight='bold',
-           bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.3))
-    
+
+    cell_height = 0.022
+    header_y = 0.96
+    col_x_starts = [0.01, 0.51]
+    # Column widths in axes-fraction units: rule | conditions | output | strength
+    col_widths = (0.05, 0.27, 0.12, 0.05)
+    headers = ('Rule', 'Conditions', 'Output Var', 'μ')
+
+    def color_for(strength):
+        if strength <= 0.01:
+            return '#E0E0E0'   # inactive
+        if strength < 0.34:
+            return '#FFE082'   # weak
+        if strength < 0.67:
+            return '#FFB74D'   # medium
+        return '#81C784'       # strong
+
+    for col_idx, col_rows in enumerate(columns):
+        x0 = col_x_starts[col_idx]
+
+        # Header row.
+        offset = 0.0
+        for label, width in zip(headers, col_widths):
+            ax.text(x0 + offset, header_y, label, fontsize=10, fontweight='bold',
+                    bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.7))
+            offset += width
+
+        # Data rows.
+        y = header_y - cell_height - 0.005
+        for name, description, output_var, strength in col_rows:
+            bg = color_for(strength)
+            cells = (
+                (name, 8, False),
+                (description[:50], 7, False),
+                (output_var, 7, False),
+                (f'{strength:.2f}', 8, strength > 0.01),
+            )
+            offset = 0.0
+            for (text, fontsize, bold), width in zip(cells, col_widths):
+                ax.text(
+                    x0 + offset, y, text,
+                    fontsize=fontsize,
+                    fontweight='bold' if bold else 'normal',
+                    bbox=dict(boxstyle='round', facecolor=bg, alpha=0.6),
+                )
+                offset += width
+            y -= cell_height
+
+    summary = (
+        f'Total Rules: {n_rules}    |    '
+        f'Active (μ > 0.01): {n_active}    |    '
+        f'Strength color: gray=inactive, yellow=weak, orange=medium, green=strong'
+    )
+    ax.text(0.5, 0.005, summary, fontsize=10, fontweight='bold', ha='center',
+            bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.4))
+
     plt.tight_layout()
     plt.savefig('03_rule_activation.png', dpi=150, bbox_inches='tight')
     print("✓ Saved: 03_rule_activation.png")
@@ -860,30 +732,25 @@ def visualize_discharge_intersection(system):
 
 
 # ============================================================================
-# VISUALIZATION 8: CONTROL SURFACES (3D)
-# ============================================================================
-
-# ============================================================================
 # VISUALIZATION 8: OUTPUT DISTRIBUTIONS
 # ============================================================================
 
-def visualize_output_distributions(system):
+def visualize_output_distributions(system, n_samples=100):
     """
     Create histograms and box plots of output distributions.
-    
-    Samples 100 random input combinations (reduced to avoid state issues).
+
+    Samples `n_samples` random input combinations (default 100; kept low
+    because scikit-fuzzy can leak simulation state across many calls and the
+    auto-recreation fallback in get_recommendations slows things down).
     Includes load as random input.
-    
+
     Top row: Histograms (25 bins, red dashed mean line)
     Bottom row: Box plots (with min/mean/max annotations)
-    
+
     Colors: blue=charging, orange=cooling, red=warning, green=discharge
     """
     # Set seed for reproducibility
     np.random.seed(42)
-    
-    # Generate random samples (reduced from 1000 to avoid corruption)
-    n_samples = 100
     battery_samples = np.random.uniform(0, 100, n_samples)
     temp_samples = np.random.uniform(-20, 80, n_samples)
     health_samples = np.random.uniform(0, 100, n_samples)
@@ -918,7 +785,8 @@ def visualize_output_distributions(system):
     
     # Create figure
     fig, axes = plt.subplots(2, 4, figsize=(18, 10))
-    fig.suptitle('Output Distributions (1000 Random Samples)', fontsize=14, fontweight='bold')
+    fig.suptitle(f'Output Distributions ({len(charging_outputs)} Random Samples)',
+                 fontsize=14, fontweight='bold')
     
     # ---- CHARGING SPEED ----
     # Histogram
@@ -1039,40 +907,40 @@ def visualize_output_distributions(system):
 # ============================================================================
 
 def main():
-    """Generate all 9 visualizations."""
+    """Generate all 8 visualizations."""
     print("\n" + "="*60)
     print("BATTERY FUZZY SYSTEM - VISUALIZATION SUITE")
     print("="*60 + "\n")
-    
+
     # Initialize system
     print("Initializing BatteryFuzzySystem...")
     system = BatteryFuzzySystem()
     print("✓ System initialized\n")
-    
+
     # Generate all visualizations
     print("Generating visualizations...\n")
-    
-    print("[1/9] Membership Functions...")
+
+    print("[1/8] Membership Functions...")
     visualize_membership_functions(system)
-    
-    print("[2/9] Fuzzification...")
+
+    print("[2/8] Fuzzification...")
     visualize_fuzzification(system)
-    
-    print("[3/9] Rule Activation...")
+
+    print("[3/8] Rule Activation...")
     visualize_rule_activation(system)
-    
-    print("[4/9] Charging Intersection...")
+
+    print("[4/8] Charging Intersection...")
     visualize_charging_intersection(system)
-    
-    print("[5/9] Cooling Intersection...")
+
+    print("[5/8] Cooling Intersection...")
     visualize_cooling_intersection(system)
-    
-    print("[6/9] Warning Intersection...")
+
+    print("[6/8] Warning Intersection...")
     visualize_warning_intersection(system)
-    
+
     print("[7/8] Discharge Limit Intersection...")
     visualize_discharge_intersection(system)
-    
+
     print("[8/8] Output Distributions...")
     visualize_output_distributions(system)
     
