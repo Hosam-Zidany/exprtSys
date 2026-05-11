@@ -41,8 +41,16 @@ PROJECT_SUBTITLE_AR = 'مبني على المنطق الضبابي'
 PROJECT_TITLE_EN = 'Smart Battery Management System'
 PROJECT_SUBTITLE_EN = 'Built on Fuzzy Logic'
 
-# Number of blank lines reserved on the title page for team-member names.
-TEAM_NAME_SLOTS = 5
+# Team-member names rendered on the title page (one per line).
+# Replace the placeholders below with the actual names; leave an entry empty
+# (e.g. '') to keep a blank underline slot instead of printed text.
+TEAM_NAMES: list[str] = [
+    '',
+    '',
+    '',
+    '',
+    '',
+]
 
 
 # ---------------------------------------------------------------------------
@@ -349,9 +357,13 @@ def _build_css(font_dir: str) -> str:
     }}
     .title-page .team-slot {{
         width: 65%;
-        height: 0;
+        min-height: 6mm;
         border-bottom: 1px solid #888;
         margin: 9mm auto 0 auto;
+        font-size: 13pt;
+        color: #1A1A1A;
+        text-align: center;
+        padding-bottom: 1mm;
     }}
     .title-page .date-line {{
         font-size: 11pt;
@@ -505,8 +517,10 @@ def _scenarios_table_html(system: BatteryFuzzySystem) -> str:
 # ---------------------------------------------------------------------------
 
 def _title_page_html() -> str:
-    slots = '\n'.join('<div class="team-slot"></div>'
-                      for _ in range(TEAM_NAME_SLOTS))
+    slots = '\n'.join(
+        f'<div class="team-slot">{html.escape(name)}</div>'
+        for name in TEAM_NAMES
+    )
     today = datetime.date.today().strftime('%Y / %m / %d')
     return f"""
     <section class="title-page">
